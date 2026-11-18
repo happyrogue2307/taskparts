@@ -13,6 +13,10 @@
 namespace taskparts {
 
 // Deque from Arora, Blumofe, and Plaxton (SPAA, 1998).
+// The memory orders follow parlaylib's work_stealing_deque.h. With
+// relaxed accesses, a weakly ordered CPU (e.g., arm64) can let a thief
+// see the new bot before the store of the fiber pushed at that slot,
+// and then steal a stale fiber that already ran.
 template <typename Fiber>
 struct abp {
   using qidx = unsigned int;
@@ -47,36 +51,35 @@ struct abp {
   }
   
   auto push(Fiber* f) -> deque_surplus_result_type {
-    auto local_bot = bot.load(std::memory_order_relaxed);      // atomic load
-    deq[local_bot].f.store(f, std::memory_order_relaxed);  // shared store
+    auto local_bot = bot.load(std::memory_order_acquire);      // atomic load
+    deq[local_bot].f.store(f, std::memory_order_release);  // shared store
     local_bot += 1;
     if (local_bot == q_size) {
       taskparts_die("internal error: scheduler queue overflow\n");
     }
-    bot.store(local_bot, std::memory_order_relaxed);  // shared store
-    std::atomic_thread_fence(std::memory_order_seq_cst);
+    bot.store(local_bot, std::memory_order_seq_cst);  // shared store
     return deque_surplus_unknown;
   }
   
   auto pop() -> std::pair<Fiber*, deque_surplus_result_type> {
     Fiber* result = nullptr;
-    auto local_bot = bot.load(std::memory_order_relaxed);  // atomic load
+    auto local_bot = bot.load(std::memory_order_acquire);  // atomic load
     if (local_bot != 0) {
       local_bot--;
-      bot.store(local_bot, std::memory_order_relaxed);  // shared store
+      bot.store(local_bot, std::memory_order_release);  // shared store
       std::atomic_thread_fence(std::memory_order_seq_cst);
-      auto f = deq[local_bot].f.load(std::memory_order_relaxed);  // atomic load
-      auto old_age = age.load(std::memory_order_relaxed);      // atomic load
+      auto f = deq[local_bot].f.load(std::memory_order_acquire);  // atomic load
+      auto old_age = age.load(std::memory_order_acquire);      // atomic load
       if (local_bot > old_age.top) {
         result = f;
       } else {
-        bot.store(0, std::memory_order_relaxed);  // shared store
+        bot.store(0, std::memory_order_release);  // shared store
         auto new_age = age_t{old_age.tag + 1, 0};
         if ((local_bot == old_age.top) &&
             age.compare_exchange_strong(old_age, new_age)) {
           result = f;
         } else {
-          age.store(new_age, std::memory_order_relaxed);  // shared store
+          age.store(new_age, std::memory_order_seq_cst);  // shared store
           result = nullptr;
         }
         std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -87,10 +90,10 @@ struct abp {
   
   auto steal() -> std::pair<Fiber*, deque_surplus_result_type> {
     Fiber* result = nullptr;
-    auto old_age = age.load(std::memory_order_relaxed);    // atomic load
-    auto local_bot = bot.load(std::memory_order_relaxed);  // atomic load
+    auto old_age = age.load(std::memory_order_acquire);    // atomic load
+    auto local_bot = bot.load(std::memory_order_acquire);  // atomic load
     if (local_bot > old_age.top) {
-      auto f = deq[old_age.top].f.load(std::memory_order_relaxed);  // atomic load
+      auto f = deq[old_age.top].f.load(std::memory_order_acquire);  // atomic load
       auto new_age = old_age;
       new_age.top = new_age.top + 1;
       if (age.compare_exchange_strong(old_age, new_age)) {

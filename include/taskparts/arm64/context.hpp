@@ -79,8 +79,14 @@ namespace taskparts {
 static constexpr
 size_t stack_alignb = 16;
 
+// size of the call stack of a fiber that is not running on its
+// parent's stack; override by defining TASKPARTS_FIBER_STACK_SZB
+#ifndef TASKPARTS_FIBER_STACK_SZB
+#define TASKPARTS_FIBER_STACK_SZB (stack_alignb * (1<<12))
+#endif
+
 static constexpr
-size_t thread_stack_szb = stack_alignb * (1<<12);
+size_t thread_stack_szb = TASKPARTS_FIBER_STACK_SZB;
 
 class context {  
 public:

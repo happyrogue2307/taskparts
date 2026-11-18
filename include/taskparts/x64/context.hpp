@@ -104,8 +104,13 @@ public:
     }
     static constexpr
     size_t thread_stack_alignb = 16L;
+    // size of the call stack of a fiber that is not running on its
+    // parent's stack; override by defining TASKPARTS_FIBER_STACK_SZB
+#ifndef TASKPARTS_FIBER_STACK_SZB
+#define TASKPARTS_FIBER_STACK_SZB (thread_stack_alignb * (1<<13))
+#endif
     static constexpr
-    size_t thread_stack_szb = thread_stack_alignb * (1<<13);
+    size_t thread_stack_szb = TASKPARTS_FIBER_STACK_SZB;
     static constexpr
     int _X86_64_SP_OFFSET = 6;
     char* stack = (char*)malloc(thread_stack_szb);

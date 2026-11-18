@@ -38,6 +38,13 @@ public:
 
   static
   uint64_t base_time;
+
+#if TASKPARTS_TRACE_NONGREEDY
+  // wall-clock time taken together with base_time, used to calibrate
+  // cycle counts against nanoseconds
+  static
+  steadyclock::time_point_type base_wall;
+#endif
   
   uint64_t cycle_count;
   
@@ -174,6 +181,10 @@ public:
 
 uint64_t event_type::base_time;
 
+#if TASKPARTS_TRACE_NONGREEDY
+steadyclock::time_point_type event_type::base_wall;
+#endif
+
 /*---------------------------------------------------------------------*/
 /* Log buffer */
   
@@ -285,6 +296,9 @@ public:
       buffers[id].clear();
     }
     event_type::base_time = cycles::now();
+#if TASKPARTS_TRACE_NONGREEDY
+    event_type::base_wall = steadyclock::now();
+#endif
     push(event_type(enter_launch));
   }
 
@@ -304,6 +318,43 @@ public:
     fclose(f);
   }
   
+#if TASKPARTS_TRACE_NONGREEDY
+  // Plain-text dump of the raw events, one per line, consumed by
+  // benchmark/script/nongreedy.py:
+  //   # ns_per_tick <float>
+  //   # nb_workers <int>
+  //   worker ticks event
+  //   <worker_id> <cycles since base_time> <event name>
+  static
+  void output_events(buffer_type& b, std::string fname) {
+    if (fname == "") {
+      return;
+    }
+    std::string ext = ".json";
+    if ((fname.size() >= ext.size()) &&
+        (fname.compare(fname.size() - ext.size(), ext.size(), ext) == 0)) {
+      fname = fname.substr(0, fname.size() - ext.size());
+    }
+    fname += ".events.txt";
+    auto elapsed_ticks = cycles::diff(event_type::base_time, cycles::now());
+    auto elapsed_ns = steadyclock::since(event_type::base_wall) * 1.0e9;
+    double ns_per_tick = (elapsed_ticks == 0) ? 0.0 : elapsed_ns / (double)elapsed_ticks;
+    FILE* f = fopen(fname.c_str(), "w");
+    fprintf(f, "# ns_per_tick %.9f\n", ns_per_tick);
+    fprintf(f, "# nb_workers %lu\n", (unsigned long)perworker::nb_workers());
+    fprintf(f, "worker ticks event\n");
+    for (auto& e : b) {
+      auto n = name_of(e.tag);
+      while ((! n.empty()) && (n.back() == ' ')) {
+        n.pop_back();
+      }
+      fprintf(f, "%lu %lu %s\n", (unsigned long)e.worker_id,
+              (unsigned long)cycles::diff(event_type::base_time, e.cycle_count), n.c_str());
+    }
+    fclose(f);
+  }
+#endif
+
   static
   void output(std::string fname) {
     if (! enabled) {
@@ -321,6 +372,11 @@ public:
       return e1.cycle_count < e2.cycle_count;
     });
     output_json(b, fname);
+#if TASKPARTS_TRACE_NONGREEDY
+    if (tracking_kind[fibers]) {
+      output_events(b, fname);
+    }
+#endif
   }
   
 };

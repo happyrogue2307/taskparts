@@ -48,7 +48,11 @@ public:
   // CPU context of this thread
   context::context_type ctx;
 
-  nativefj_fiber() : fiber<Scheduler>() { }
+  nativefj_fiber() : fiber<Scheduler>() {
+#if TASKPARTS_TRACE_NONGREEDY
+    this->count_ready = true;
+#endif
+  }
 
   ~nativefj_fiber() {
     if ((stack == nullptr) || (stack == notownstackptr)) {
@@ -80,6 +84,13 @@ public:
   // point of entry from the scheduler to the body of this thread
   // the scheduler may reenter this fiber via this method
   auto exec() -> fiber_status_type {
+#if TASKPARTS_TRACE_NONGREEDY
+    // non-greediness tracing: pairs with the fiber_ready logged by release()
+    if (this->count_ready) {
+      Scheduler::on_fiber_start();
+    }
+    this->count_ready = true;
+#endif
     if (stack == nullptr) {
       // initial entry by the scheduler into the body of this thread
       stack = context::spawn(context::addr(ctx), this);
@@ -129,6 +140,11 @@ public:
     fiber<Scheduler>::add_edge(f2, this);
     fiber<Scheduler>::add_edge(f1, this);
     f2->release();
+#if TASKPARTS_TRACE_NONGREEDY
+    // f1 goes to this worker's private buffer and is never stealable, so
+    // (like parlay's left branch) it is not counted as ready
+    f1->count_ready = false;
+#endif
     f1->release();
     if (context::capture<nativefj_fiber*>(context::addr(ctx))) {
       //aprintf("steal happened: executing join continuation\n");
@@ -187,6 +203,10 @@ public:
   auto yield() -> void {
     auto s = status;
     status = fiber_status_continue;
+#if TASKPARTS_TRACE_NONGREEDY
+    // the scheduler reschedules this fiber without a release()
+    Scheduler::on_fiber_ready();
+#endif
     swap_with_scheduler();
     status = s;
   }
@@ -338,6 +358,9 @@ public:
           //TASKPARTS_LOG_PPT(Scheduler, cf);
           auto i = --cf->incounter;
           assert(i == 0);
+#if TASKPARTS_TRACE_NONGREEDY
+          Scheduler::on_fiber_ready(); // cf is made ready without a release()
+#endif
           cf->schedule();
           break;
         } else {

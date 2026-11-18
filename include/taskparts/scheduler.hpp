@@ -13,6 +13,18 @@
 #error need to declare platform (e.g., TASKPARTS_POSIX)
 #endif
 
+// True to compile in the hooks for the non-greediness measure: fork-join
+// fibers log fiber_ready (incounter reaches 0) and fiber_start (a worker
+// starts or resumes the fiber), and Logging::output also writes the raw
+// <base>.events.txt read by benchmark/script/nongreedy.py. The events are
+// recorded only when built with TASKPARTS_LOG and run with
+// TASKPARTS_LOGGING_FIBERS=1.
+//
+// Default: true
+#ifndef TASKPARTS_TRACE_NONGREEDY
+#define TASKPARTS_TRACE_NONGREEDY true
+#endif
+
 namespace taskparts {
 
 /*---------------------------------------------------------------------*/
@@ -101,6 +113,9 @@ using event_tag_type = enum event_tag_type_enum {
   enter_sleep,        exit_sleep,     failed_to_sleep,
   wake_child,         worker_exit,    initiate_teardown,
   program_point,
+#if TASKPARTS_TRACE_NONGREEDY
+  fiber_ready,        fiber_start,
+#endif
   nb_events
 };
 
@@ -121,6 +136,10 @@ auto name_of(event_tag_type e) -> std::string {
     case initiate_teardown: return "initiate_teardown";
     case algo_phase:        return "algo_phase ";
     case program_point:        return "program_point ";
+#if TASKPARTS_TRACE_NONGREEDY
+    case fiber_ready:       return "fiber_ready ";
+    case fiber_start:       return "fiber_start ";
+#endif
     default:                return "unknown_event ";
   }
 }
@@ -142,6 +161,10 @@ auto kind_of(event_tag_type e) -> event_kind_type {
     case worker_exit:
     case initiate_teardown:
     case program_point:             return program;
+#if TASKPARTS_TRACE_NONGREEDY
+    case fiber_ready:
+    case fiber_start:               return fibers;
+#endif
     default:                        return nb_kinds;
   }
 }
@@ -349,6 +372,20 @@ public:
   auto log_program_point(int line_nb, const char* source_fname, void* ptr) {
     Logging::log_program_point(line_nb, source_fname, ptr);
   }
+
+#if TASKPARTS_TRACE_NONGREEDY
+  // non-greediness tracing: a fiber became ready (incounter reached 0)
+  static inline
+  auto on_fiber_ready() {
+    Logging::log_event(fiber_ready);
+  }
+
+  // non-greediness tracing: a worker started (or resumed) a ready fiber
+  static inline
+  auto on_fiber_start() {
+    Logging::log_event(fiber_start);
+  }
+#endif
   
 };
 

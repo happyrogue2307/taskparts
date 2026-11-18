@@ -22,6 +22,12 @@ public:
   alignas(TASKPARTS_CACHE_LINE_SZB)
   fiber* outedge;
 
+#if TASKPARTS_TRACE_NONGREEDY
+  // if set, release() logs a fiber_ready event (non-greediness tracing);
+  // only fork-join fibers set this
+  bool count_ready = false;
+#endif
+
   auto schedule() {
     Scheduler::schedule(this);
   }
@@ -51,6 +57,11 @@ public:
 
   auto release() {
     if (--incounter == 0) {
+#if TASKPARTS_TRACE_NONGREEDY
+      if (count_ready) {
+        Scheduler::on_fiber_ready();
+      }
+#endif
       schedule();
     }
   }

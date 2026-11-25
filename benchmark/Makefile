@@ -5,7 +5,19 @@
 INSTALL_PATH?=bin
 # root folder of taskparts repository
 TASKPARTS_PATH?=../
-TASKPARTS_PLATFORM?=-DTASKPARTS_POSIX -DTASKPARTS_X64
+# platform flags, detected from the host unless TASKPARTS_PLATFORM is given
+ifeq ($(origin TASKPARTS_PLATFORM), undefined)
+ifeq ($(shell uname -s),Darwin)
+TASKPARTS_PLATFORM=-DTASKPARTS_DARWIN
+else
+TASKPARTS_PLATFORM=-DTASKPARTS_POSIX
+endif
+ifneq ($(filter arm64 aarch64,$(shell uname -m)),)
+TASKPARTS_PLATFORM+=-DTASKPARTS_ARM64
+else
+TASKPARTS_PLATFORM+=-DTASKPARTS_X64
+endif
+endif
 
 # Other parameters (all nil by default):
 #   HWLOC_INCLUDE_PREFIX           include directives for hwloc (optionally empty)

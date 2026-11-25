@@ -7,8 +7,20 @@
 
 using _context_pointer = char*;
 
+// Plain version, used by swap() and spawn(). It must NOT be marked
+// returns_twice: in spawn() the second return lands on a brand new
+// fiber stack, and returns_twice makes GCC keep live values in stack
+// slots, which would be garbage on that new stack.
 extern "C"
 void* _taskparts_ctx_save(_context_pointer);
+
+// Same code as _taskparts_ctx_save (an assembler alias defined below),
+// but declared returns_twice so the compiler treats call sites like
+// setjmp. Used by capture(), whose second return resumes in the same
+// frame after that frame has kept running past the first return.
+extern "C" __attribute__((returns_twice))
+void* _taskparts_ctx_save_rt(_context_pointer);
+
 asm(R"(
 .globl _taskparts_ctx_save
         .type _taskparts_ctx_save, @function
@@ -29,6 +41,9 @@ _taskparts_ctx_save:
         ret
         .size _taskparts_ctx_save, .-_taskparts_ctx_save
         .cfi_endproc
+.globl _taskparts_ctx_save_rt
+        .type _taskparts_ctx_save_rt, @function
+        .set _taskparts_ctx_save_rt, _taskparts_ctx_save
 )");
 
 // if t (%rsi) is nullptr, then have the matching call to _taskparts_ctx_save() return the value 1.
@@ -90,7 +105,7 @@ public:
   template <class Value>
   static
   Value capture(context_pointer ctx) {
-    void* r = _taskparts_ctx_save(ctx);
+    void* r = _taskparts_ctx_save_rt(ctx);
     return (Value)r;
   }
   
